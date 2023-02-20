@@ -1,3 +1,6 @@
+
+
+import java.lang.Float.max
 import kotlin.random.Random
 
 val random = Random(1234)
@@ -92,7 +95,7 @@ class LimitedBanner(val pullStats: PullStats = PullStats(), ownershipStats: Owne
 }
 
 
-const val sixStarRate: Double = 0.029 //TODO CODE IN PITY
+const val sixStarRate: Double = 0.02
 const val fiveStarRate: Double = 0.08
 const val fourStarRate: Double = 0.5
 
@@ -102,16 +105,22 @@ abstract class Banner(pullStats: PullStats, ownershipStats: OwnershipStats) : Pu
     private val fourStarPool: FourStarPool = FourStarPool(pullStats, ownershipStats)
     private val threeStarPool: ThreeStarPool = ThreeStarPool(pullStats)
 
+    private var pity = 0
     override fun pull() {
         val threshold = random.nextDouble()
 
+        val currentSixStarRate = sixStarRate + max(0F, ((pity - 50) * 0.02).toFloat())
         val pool = when {
-            threshold <= sixStarRate -> sixStarPool
-            threshold <= sixStarRate + fiveStarRate -> fiveStarPool
-            threshold <= sixStarRate + fiveStarRate + fourStarRate -> fourStarPool
+            threshold <= currentSixStarRate -> {
+                pity = -1
+                sixStarPool
+            }
+            threshold <= currentSixStarRate + fiveStarRate -> fiveStarPool
+            threshold <= currentSixStarRate + fiveStarRate + fourStarRate -> fourStarPool
             else -> threeStarPool
         }
 
+        pity++
         pool.pull()
     }
 
