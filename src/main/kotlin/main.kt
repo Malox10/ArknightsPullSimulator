@@ -1,5 +1,3 @@
-
-
 import java.lang.Float.max
 import kotlin.random.Random
 
@@ -18,6 +16,7 @@ fun massSimulation(amount: Int = 1000000) {
             limitedBanner.pull()
         }
 
+        //println(limitedBanner.pullStats)
         count += limitedBanner.pullStats
     }
 
@@ -53,11 +52,17 @@ class LimitedBanner(val pullStats: PullStats = PullStats(), ownershipStats: Owne
                 val numberOfCopies = rateUp[sixStarRateUp]!!
                 rateUp[sixStarRateUp] = numberOfCopies + 1
 
-                pullStats.goldCerts += if (numberOfCopies == 0) 1 else if (numberOfCopies < 7) 10 else 15
+                when(numberOfCopies) {
+                    0 -> pullStats.certStats.pulledNewUnit()
+                    else -> pullStats.certStats.incrementCountOf(CertRarity.Six, numberOfCopies < 6)
+                }
             } else {
                 val ownershipThreshold = random.nextDouble()
-                pullStats.goldCerts += if (ownershipThreshold <= ownershipStats.sixMaxPotPercent) 25
-                else if (ownershipThreshold <= ownershipStats.sixPercent) 10 else 1
+                if(ownershipThreshold <= ownershipStats.sixPercent) pullStats.certStats.pulledNewUnit()
+                else {
+                    val isMaxPot = ownershipThreshold <= ownershipStats.sixMaxPotPercent
+                    pullStats.certStats.incrementCountOf(CertRarity.Six, isMaxPot)
+                }
             }
         }
 
@@ -80,11 +85,17 @@ class LimitedBanner(val pullStats: PullStats = PullStats(), ownershipStats: Owne
                 val numberOfCopies = rateUp[fiveStarRateUp]!!
                 rateUp[fiveStarRateUp] = numberOfCopies + 1
 
-                pullStats.goldCerts += if (numberOfCopies == 0) 1 else if (numberOfCopies < 7) 5 else 13
+                when(numberOfCopies) {
+                    0 -> pullStats.certStats.pulledNewUnit()
+                    else -> pullStats.certStats.incrementCountOf(CertRarity.Five, numberOfCopies < 6)
+                }
             } else {
                 val ownershipThreshold = random.nextDouble()
-                pullStats.goldCerts += if (ownershipThreshold <= ownershipStats.fiveMaxPotPercent) 13
-                else if (ownershipThreshold <= ownershipStats.fivePercent) 5 else 1
+                if(ownershipThreshold <= ownershipStats.fivePercent) pullStats.certStats.pulledNewUnit()
+                else {
+                    val isMaxPot = ownershipThreshold <= ownershipStats.fiveMaxPotPercent
+                    pullStats.certStats.incrementCountOf(CertRarity.Five, isMaxPot)
+                }
             }
         }
 
@@ -128,6 +139,7 @@ abstract class Banner(pullStats: PullStats, ownershipStats: OwnershipStats) : Pu
         override fun pull() {
 //            println("pulled a 3*")
             pullStats.threeCount++
+            pullStats.certStats.incrementCountOf(CertRarity.Three, true)
         }
     }
 
@@ -136,7 +148,8 @@ abstract class Banner(pullStats: PullStats, ownershipStats: OwnershipStats) : Pu
 //            println("pulled a 4*!")
             pullStats.fourCount++
             val threshold = random.nextDouble()
-            if (ownershipStats.fourMaxPotPercent > threshold) pullStats.goldCerts++
+            val isMaxPot = ownershipStats.fourMaxPotPercent > threshold
+            pullStats.certStats.incrementCountOf(CertRarity.Four, isMaxPot)
         }
     }
 }
@@ -158,14 +171,18 @@ data class PullStats(
     var fiveCount: Int = 0,
     var fourCount: Int = 0,
     var threeCount: Int = 0,
-    var goldCerts: Int = 0,
+    val certStats: CertStats = CertStats(),
+    var goldCerts: Long = 0, //hacky solution to have sums of pullstats
+    var blueCerts: Long = 0, //hacky solution to have sums of pullstats
 ) {
     operator fun plusAssign(other: PullStats) {
         sixCount += other.sixCount
         fiveCount += other.fiveCount
         fourCount += other.fourCount
         threeCount += other.threeCount
-        goldCerts += other.goldCerts
+
+        goldCerts += other.certStats.toGoldCerts()
+        blueCerts += other.certStats.toBlueCerts()
     }
 
     override fun toString(): String {
@@ -175,7 +192,8 @@ data class PullStats(
                 "4*: ${this.fourCount}\n" +
                 "3*: ${this.threeCount}\n" +
                 "\n" +
-                "Gold Certificates: ${this.goldCerts}"
+                "Gold Certificates: ${this.certStats.toGoldCerts()}\n" +
+                "Blue Certificates: ${this.certStats.toBlueCerts()}"
     }
 
     operator fun div(amount: Int): PullStatsFloat {
@@ -185,6 +203,7 @@ data class PullStats(
             fourCount.toFloat() / amount,
             threeCount.toFloat() / amount,
             goldCerts.toFloat() / amount,
+            blueCerts.toFloat() / amount,
         )
     }
 }
@@ -195,6 +214,7 @@ data class PullStatsFloat(
     var fourCount: Float = 00f,
     var threeCount: Float = 00f,
     var goldCerts: Float = 00f,
+    var blueCerts: Float = 00f,
 ) {
     override fun toString(): String {
         return "=== Pull Stats ===\n" +
@@ -203,11 +223,74 @@ data class PullStatsFloat(
                 "4*: ${this.fourCount}\n" +
                 "3*: ${this.threeCount}\n" +
                 "\n" +
-                "Gold Certificates: ${this.goldCerts}"
+                "Gold Certificates: ${this.goldCerts}\n" +
+                "Blue Certificates: ${this.blueCerts}\n" +
+                "Blue to Gold Ratio: ${this.blueCerts / this.goldCerts}"
+
     }
 }
 
 
+typealias isMaxPot = Boolean
+data class CertStats(
+    private var newUnits: Int = 0,
+    private val certMap: MutableMap<Pair<CertRarity, isMaxPot>, Int> = mutableMapOf(),
+) {
+    fun incrementCountOf(rarity: CertRarity, isMaxPot: Boolean) {
+        val key = rarity to isMaxPot
+        val value = certMap.getOrDefault(key, 0)
+        certMap[key] = value + 1
+    }
+
+    fun pulledNewUnit() = newUnits++
+
+    fun toGoldCerts(): Int {
+        val certs = certMap.map { (key, value) ->
+            goldCertMap.getOrDefault(key, 0) * value
+        }.sum()
+
+        return certs
+    }
+
+    fun toBlueCerts(): Int {
+        val certs = certMap.map { (key, value) ->
+            blueCertMap.getOrDefault(key, 0) * value
+        }.sum()
+
+        return certs
+    }
+
+    companion object {
+        val goldCertMap = mapOf(
+            CertRarity.Three to false to 0,
+            CertRarity.Four to false to 0,
+            CertRarity.Five to false to 5,
+            CertRarity.Six to false to 10,
+            CertRarity.Three to true to 0,
+            CertRarity.Four to true to 1,
+            CertRarity.Five to true to 13,
+            CertRarity.Six to true to 25,
+        )
+
+        val blueCertMap = mapOf(
+            CertRarity.Three to false to 1,
+            CertRarity.Four to false to 5,
+            CertRarity.Five to false to 50,
+            CertRarity.Six to false to 100,
+            CertRarity.Three to true to 2,
+            CertRarity.Four to true to 13,
+            CertRarity.Five to true to 130,
+            CertRarity.Six to true to 300,
+        )
+    }
+}
+
+enum class CertRarity {
+    Three,
+    Four,
+    Five,
+    Six
+}
 
 
 data class OwnershipStats(
